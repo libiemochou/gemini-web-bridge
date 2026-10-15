@@ -7,7 +7,7 @@ Gemini 网页桥接 —— 安装 / 修复「生图工具」
 
 作用：把 gemini-image 这个 MCP 工具注册进 Claude Code 系的配置文件（~/.claude.json），
      让任意会话都能对模型说"帮我生成一张图片"。
-重复运行无害（幂等）—— Claude Code / cc-haha 更新后如果工具消失，重跑一次即可。
+重复运行无害（幂等）—— Claude Code（或你的客户端）更新后如果工具消失，重跑一次即可。
 """
 import json
 import os
@@ -40,7 +40,7 @@ def main():
         print("[X] 找不到 mcp_server.py —— 请把本脚本和 mcp_server.py 放在同一个文件夹里运行。")
         return 1
     if not os.path.isfile(CLAUDE_JSON):
-        print("[X] 找不到 %s —— 请先安装并运行过一次 Claude Code（或 cc-haha）。" % CLAUDE_JSON)
+        print("[X] 找不到 %s —— 请先安装并运行过一次 Claude Code（或兼容客户端）。" % CLAUDE_JSON)
         return 1
 
     try:
@@ -64,7 +64,7 @@ def main():
 
     print()
     print("下一步：")
-    print("  1. 重启一次 Claude Code / cc-haha（让工具生效）")
+    print("  1. 重启一次 Claude Code（或你的客户端），让工具生效")
     print("  2. 确保 Chrome 里已经加载了 extension 文件夹（chrome://extensions → 加载已解压的扩展程序）")
     print("  3. 在浏览器里登录你的 Gemini 账号（建议用小号）")
     print("  4. 随便找个会话，说：帮我生成一张柴犬戴墨镜的图片")

@@ -1,6 +1,6 @@
 # Gemini Web Bridge · Gemini 网页桥接
 
-**把 Gemini 网页版变成你的本地 API —— 免费使用 Gemini 的生图能力，接进 Claude Code / cc-haha。**
+**把 Gemini 网页版变成你的本地 API —— 免费使用 Gemini 的生图能力，接入支持 MCP 的 AI 客户端。**
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![platform](https://img.shields.io/badge/platform-Windows-lightgrey)
@@ -37,7 +37,7 @@
 ```
 ┌──────────────────────── 你的电脑 ────────────────────────┐
 │                                                          │
-│  Claude Code / cc-haha                                   │
+│  Claude Code（或兼容客户端）                              │
 │      │ ① 你说："帮我生成一张柴犬戴墨镜的图片"              │
 │      ▼                                                   │
 │  generate_image（MCP 工具 · mcp_server.py）              │
@@ -73,7 +73,7 @@
    python install_mcp.py
    ```
 
-4. **重启** Claude Code / cc-haha
+4. **重启** Claude Code（或你的客户端）
 
 **验收**：随便找个会话说一句 —— *"帮我生成一张柴犬戴墨镜的图片"*。第一次会慢一点（要打开页面 + 画图），30~90 秒属于正常。
 
@@ -81,7 +81,7 @@
 
 **生图**：直接说人话就行（"画一只…""生成一张…"）。画完的原图会躺在电脑的「下载」文件夹里，对话里会告诉你完整路径。
 
-**可选——把网页版当聊天线路**（慢，仅备用）：在 Claude Code / cc-haha 的供应商设置里新增一条：
+**可选——把网页版当聊天线路**（慢，仅备用）：在客户端（Claude Code 等）的供应商设置里新增一条：
 
 - Base URL：`http://127.0.0.1:8080`（**不要加 /v1**）
 - 格式：Anthropic

@@ -2,7 +2,7 @@
 """
 Gemini 网页版桥接 —— 本地桥接程序
 把浏览器插件从 Gemini 网页抓到的回答，包装成 Anthropic Messages API，
-供 cc-haha 等 Claude Code 系客户端使用。只用 Python 标准库。
+供 Claude Code 及各类兼容客户端使用。只用 Python 标准库。
 
 启动：双击 start-bridge.bat（排障用；平时由生图工具自动拉起）
 状态：浏览器打开 http://127.0.0.1:8080/x/status
@@ -269,7 +269,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if path == "/":
             self._send_json(200, {
                 "ok": True, "name": "Gemini 网页桥接",
-                "hint": "把 cc-haha 的供应商地址指向 http://127.0.0.1:%d" % PORT,
+                "hint": "把客户端的供应商地址指向 http://127.0.0.1:%d" % PORT,
             })
         elif path == "/x/poll":
             self._handle_poll()

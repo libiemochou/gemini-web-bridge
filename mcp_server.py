@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Gemini 生图 —— MCP 工具（stdio）
-给 cc-haha / Claude Code 暴露一个 generate_image 工具：
+给 Claude Code 及各类兼容客户端暴露一个 generate_image 工具：
 模型收到"生图"需求时调用它，内部转发给本地桥接程序 127.0.0.1:8080/x/gen-image。
 桥接程序没在跑的话，会自动把它拉起来。只用 Python 标准库。
 """
