@@ -6,3 +6,7 @@ __pycache__/
 *.bak
 *.bak-*
 output/
+
+# 编辑器
+.idea/
+.vscode/

@@ -32,6 +32,8 @@
 - 🪄 **按需启停**：Gemini 页面平时不用开——需要时自动打开、干完自动关闭；桥接程序由工具自动拉起，平时零维护
 - 🔒 **全程本地**：所有请求只在你电脑内打转，不经过任何第三方服务器
 
+**谁适合用**：日常使用 Claude Code（或其他支持 MCP 的客户端）的朋友。不装 Claude Code 也能用——桥接程序对外就是一条本地 API（见下方「本地 API 一览」）。
+
 ## 工作原理
 
 ```
@@ -58,16 +60,16 @@
 
 **环境要求**
 
-- Windows 10 / 11
+- Windows 10 / 11（macOS / Linux 暂未适配——欢迎 PR）
 - [Python 3.8+](https://www.python.org/downloads/)（安装时勾选 *Add python.exe to PATH*）
 - Chrome 或 Edge
 - 一个能正常访问 Gemini 的 Google 账号 —— **强烈建议用小号**
 
 **安装（4 步）**
 
-1. 下载本仓库（`Code` → `Download ZIP`，或 `git clone`）
-2. **装插件**：浏览器打开 `chrome://extensions` → 打开右上角「开发者模式」→「加载已解压的扩展程序」→ 选择仓库里的 `extension` 文件夹
-3. **注册生图工具**：在仓库文件夹里运行
+1. **下载**：点页面右上角绿色的 `Code` 按钮 → `Download ZIP` → 解压到一个**你想长期保留的位置**（比如 `D:\gemini-web-bridge`）。不用会 git，ZIP 就够。注意：以后别随意挪这个文件夹——挪了要按 FAQ 里「把文件夹挪了位置后失灵」那条处理
+2. **装插件**：Chrome 打开 `chrome://extensions`（Edge 用 `edge://extensions`）→ 打开右上角「开发者模式」→「加载已解压的扩展程序」→ 选择解压出来的 `extension` 文件夹
+3. **注册生图工具**：打开解压出来的文件夹，在**地址栏里输入 `cmd` 回车**（弹出黑窗口），粘贴运行：
 
    ```bash
    python install_mcp.py
@@ -78,6 +80,14 @@
 **验收**：随便找个会话说一句 —— *"帮我生成一张柴犬戴墨镜的图片"*。第一次会慢一点（要打开页面 + 画图），30~90 秒属于正常。
 
 ## 使用
+
+**使用前提（就三件事）**
+
+- **Chrome / Edge 开着** —— 关掉浏览器 = 工具联系不上 Gemini（后台要靠它接活）
+- **网络能访问 Gemini** —— 国内需要梯子挂着
+- **小号登录过一次**就行 —— 浏览器会记住登录状态；哪天掉登录了重新登一下
+
+其他什么都不用管：**Gemini 网页不用开着**（需要时自动开、干完自动关），桥接程序也不用启动（自动拉起）。生图时浏览器可能会自己跳到前台干活——别慌，那就是它在工作。
 
 **生图**：直接说人话就行（"画一只…""生成一张…"）。画完的原图会躺在电脑的「下载」文件夹里，对话里会告诉你完整路径。
 
@@ -99,6 +109,9 @@
 | 一直失败 / 行为异常 | `chrome://extensions` 把插件刷新一下；还不行就重新说一次 |
 | Claude Code 更新后工具消失 | 重跑一次 `python install_mcp.py` |
 | 怎么彻底停掉？ | 平时没有常驻程序；关掉 Chrome，或者把插件禁用即可 |
+| 把文件夹挪了位置后失灵 | 插件引用的是旧路径：`chrome://extensions` 里删掉插件、从**新位置**重新「加载已解压的扩展程序」，再重跑一次 `python install_mcp.py` |
+
+遇到其他问题：欢迎到 [Issues](https://github.com/libiemochou/gemini-web-bridge/issues) 反馈（附上错误提示截图更佳）。
 
 **⚠️ 账号安全（必读）**
 
@@ -117,6 +130,7 @@
 | `extension/` | 浏览器插件（操控 Gemini 网页的那只手） |
 | `start-bridge.bat` | 手动启动桥接（排障用，平时用不到） |
 | `start-bridge-background.bat` | 后台无窗口启动桥接 |
+| `bridge.log` | 运行日志（排障时看它；注意日志里会记录你发过的提示词，分享前先看一眼） |
 
 ## 本地 API 一览
 
@@ -137,6 +151,10 @@
 
 ---
 
+如果这个项目帮到了你，欢迎点个 Star 支持一下。
+
+---
+
 ### English
 
 Gemini Web Bridge turns your own logged-in Gemini web session into:
@@ -146,6 +164,6 @@ Gemini Web Bridge turns your own logged-in Gemini web session into:
 
 A browser extension (real browser, real IP, real session — the lowest-risk approach for automation) drives the Gemini web UI on demand: it opens a tab when needed, types, sends, waits, clicks "Download full size", and reports the file path back.
 
-**Requirements**: Windows, Python 3.8+, Chrome/Edge, a Google account that can access Gemini. **Use a burner account** — automating the web UI violates Google's ToS. Use it at a human pace.
+**Requirements**: Windows, Python 3.8+, Chrome/Edge, a Google account that can access Gemini. **Use a burner account** — automating the web UI violates Google's ToS. Use it at a human pace. At use time, Chrome must be running with the account logged in — the Gemini tab itself is opened and closed automatically.
 
 Install: load `extension/` as an unpacked extension, run `python install_mcp.py`, restart your CLI. Then just ask: *"generate an image of ..."*
