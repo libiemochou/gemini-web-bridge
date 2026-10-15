@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini 网页桥接",
+  "version": "0.1.0",
+  "description": "把 Gemini 网页版接成本地 API（配合 gemini-web-bridge 桥接程序使用）",
+  "host_permissions": ["http://127.0.0.1/*", "https://gemini.google.com/*"],
+  "permissions": ["downloads"],
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

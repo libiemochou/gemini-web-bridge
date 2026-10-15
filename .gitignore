@@ -1,0 +1,8 @@
+# 运行产物（不要提交）
+bridge.log
+bridge_console.log
+__pycache__/
+*.pyc
+*.bak
+*.bak-*
+output/
