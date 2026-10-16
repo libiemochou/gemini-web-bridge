@@ -369,7 +369,6 @@
     // 注意：每次都重新取"最后一条回答"的元素——页面重新渲染后旧元素会作废
     let lastSig = null;
     let stable = 0;
-    let imgStableAt = 0;   // 图稳定下来后开始计时，给下载按钮现身留宽限
     const deadline = Date.now() + (wantImage ? 150000 : 240000);
     while (Date.now() < deadline) {
       const list = responseNodes();
@@ -379,22 +378,22 @@
       if ((a.text || a.images.length) && sig === lastSig) {
         stable++;
         const creating = wantImage && CREATING_RE.test(a.text);
-        if (stable >= 3 && (!wantImage || (a.images.length && !creating))) {
-          if (!wantImage) return a;
-          if (hasDownloadButton(cur)) return a;   // 图 + 下载按钮齐了 = 真画完
-          // 图稳了但还没见按钮：多半还在渲染/合成，最多再多等 20 秒
-          if (!imgStableAt) imgStableAt = Date.now();
-          if (Date.now() - imgStableAt >= 20000) return a;
-        }
+        // 生图任务：必须等"这张新回答自己的下载按钮"出现才算画完——
+        // 生成中的占位卡片也能稳定几十秒，绝不能给宽限提前放行（旧图/参考图就是这么漏出去的）
+        if (stable >= 3 && (!wantImage || (a.images.length && !creating && hasDownloadButton(cur)))) return a;
       } else {
         stable = 0;
-        imgStableAt = 0;
         lastSig = sig;
       }
       await sleep(1200);
     }
     const listEnd = responseNodes();
-    const a = extractAnswer(listEnd[listEnd.length - 1] || node, !!wantImage);
+    const lastNode = listEnd[listEnd.length - 1] || node;
+    const a = extractAnswer(lastNode, !!wantImage);
+    if (wantImage && !hasDownloadButton(lastNode)) {
+      // 顶到超时也没见下载按钮：只回文字（拒答）就如实报，带着图的多半是旧图，宁可报超时
+      return (a.text && !a.images.length) ? a : null;
+    }
     return (a.text || a.images.length) ? a : null;
   }
 
