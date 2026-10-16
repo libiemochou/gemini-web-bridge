@@ -8,6 +8,7 @@ let pageBusy = false;
 let openedByUs = false;   // 这个 Gemini 标签页是不是我们开的（是的话干完活关掉）
 let dlTaskId = null;               // 生图任务：等"下载完整尺寸"的文件落地
 const ourDownloads = new Map();    // 下载id -> 归属任务id（登记时钉死，防张冠李戴）
+const seenTaskIds = new Set();     // 派过的任务id（同一单重复送达只补签收、不再画第二遍）
 let busyTaskId = null;             // 正在跑的任务（看门狗用）
 let busyTimer = null;              // 跑太久/页面被刷新的兜底
 let busyTicks = 0;                 // 干活期间的心跳计数（防后台休眠）
@@ -109,6 +110,10 @@ async function pump() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: task.id })
       }).catch(() => {});
+
+      // 同一单又被送了一次（服务端的签收没收到）：补完签收就跳过，绝不画第二遍
+      if (seenTaskIds.has(task.id)) continue;
+      seenTaskIds.add(task.id);
 
       const tab = await ensureGeminiTab();
       if (!tab) {
