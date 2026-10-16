@@ -40,6 +40,17 @@ PROMPT_IMG_PRE = (
 def build_image_prompt(desc):
     return PROMPT_IMG_PRE + (desc or "").strip()
 
+
+# 图生图任务的提示词（让 Gemini 基于上传的参考图修改，而不是重新画）
+PROMPT_IMG2IMG_PRE = (
+    "请基于我上传的这张图片进行修改：保持主体不变，直接在原图的基础上按要求改"
+    "（不要重新画一张完全不同的）。修改要求：\n"
+)
+
+
+def build_img2img_prompt(desc):
+    return PROMPT_IMG2IMG_PRE + (desc or "").strip()
+
 LOCK = threading.Lock()
 PENDING = []                # [{id, prompt, created}]，等插件来取
 WAITERS = {}                # id -> {"event": Event, "result": None}
@@ -320,6 +331,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._handle_grab_last()
         elif path == "/x/attach":
             self._handle_attach()
+        elif path == "/x/img2img":
+            self._handle_img2img()
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -411,6 +424,61 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return
         log("图片已贴进输入框：", os.path.basename(p), result.get("text") or "")
         self._send_json(200, {"ok": True, "evidence": result.get("text") or ""})
+
+    def _handle_img2img(self):
+        """一条龙图生图：贴参考图 + 修改指令，在同一个对话里完成"""
+        body = self._read_body()
+        p = (body.get("path") or "").strip()
+        desc = (body.get("prompt") or "").strip()
+        if not desc:
+            self._send_json(400, {"ok": False, "error": "缺少 prompt（要告诉它怎么改这张图）"})
+            return
+        if not p or not os.path.isfile(p):
+            self._send_json(400, {"ok": False, "error": "文件不存在：%s" % p})
+            return
+        mime = self.ALLOWED_IMG.get(os.path.splitext(p)[1].lower())
+        if not mime:
+            self._send_json(400, {"ok": False, "error": "只支持图片文件（jpg / png / webp / gif / bmp）"})
+            return
+        if os.path.getsize(p) > 25 * 1024 * 1024:
+            self._send_json(400, {"ok": False, "error": "图片太大（超过 25MB）"})
+            return
+        try:
+            with open(p, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+        except Exception as e:
+            self._send_json(500, {"ok": False, "error": "读文件失败：%s" % e})
+            return
+        tid, ev = new_task(build_img2img_prompt(desc), want="image", action="img2img",
+                           extra={"name": os.path.basename(p), "mime": mime, "b64": b64})
+        ev.wait(TASK_TIMEOUT)
+        with LOCK:
+            w = WAITERS.pop(tid, None)
+        result = (w or {}).get("result") or {}
+        err = self._result_error(result)
+        if err:
+            log("改图失败：", err)
+            self._send_json(502, {"ok": False, "error": err})
+            return
+        if result.get("downloaded"):
+            path = self._wait_download(tid)
+            if path and os.path.isfile(path):
+                log("改图结果已下载：", path)
+                self._send_json(200, {"ok": True, "files": [path],
+                                      "text": (result.get("text") or "").strip()})
+                return
+        saved = []
+        for im in (result.get("images") or []):
+            sp = save_image(im)
+            if sp:
+                saved.append(sp)
+        if not saved:
+            hint = (result.get("text") or "").strip()[:80]
+            self._send_json(502, {"ok": False,
+                                  "error": "网页回答了，但没抓到图片" + (("。它说：" + hint) if hint else "")})
+            return
+        self._send_json(200, {"ok": True, "files": saved,
+                              "text": (result.get("text") or "").strip()})
 
     def _handle_grab_last(self):
         """只下载不生成：把当前页面最后一条回答里的图按"下载完整尺寸"拿下来"""

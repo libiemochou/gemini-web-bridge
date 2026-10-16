@@ -326,11 +326,31 @@
     const scope = node.closest(".response-container") || node;
     collectImages(scope, images, 0, {});
     if (wide) {
-      // 生图任务：整页再兜一遍，只认 blob:/data:（页面图标/头像都是 https，自动排除）
-      collectImages(document.body, images, 0, { blobOnly: true });
+      // 生图任务：整页再兜一遍，只认 blob:/data:（页面图标/头像都是 https，自动排除）；
+      // 但"任务开始前就存在的图"（贴进去的参考图、接续模式里的旧图）不算结果
+      const all = [];
+      collectImages(document.body, all, 0, { blobOnly: true });
+      for (const s of all) {
+        if (!preBlobSrcs.has(s)) images.push(s);
+      }
     }
     return { text: text, images: images.slice(0, 6) };
   }
+
+  // "下载完整尺寸"按钮只有图真的画完、配好下载通道才会出现。
+  // 渲染中的半成品预览图也能"稳定"好几秒，光看图稳不稳会把半成品当结果——
+  // 所以生图任务拿这个按钮当"确实画完了"的硬信号。
+  function hasDownloadButton(node) {
+    const scope = node.closest(".response-container") || node;
+    for (const s of SEL.download) {
+      try { if (scope.querySelector(s)) return true; } catch (e) {}
+    }
+    return false;
+  }
+
+  // 生成中的占位回答（实测原文："正在创建您的图片"）——这时候画的还是参考图/半成品，
+  // 且卡片上照样带下载按钮，只有等这段占位文字被真回答换掉才算数
+  const CREATING_RE = /正在(创建|生成|绘制)|Creating your image|Generating your image/i;
 
   async function waitForAnswer(baseline, wantImage) {
     let node = null;
@@ -349,6 +369,7 @@
     // 注意：每次都重新取"最后一条回答"的元素——页面重新渲染后旧元素会作废
     let lastSig = null;
     let stable = 0;
+    let imgStableAt = 0;   // 图稳定下来后开始计时，给下载按钮现身留宽限
     const deadline = Date.now() + (wantImage ? 150000 : 240000);
     while (Date.now() < deadline) {
       const list = responseNodes();
@@ -357,9 +378,17 @@
       const sig = a.text + "\u0001" + a.images.join(",");
       if ((a.text || a.images.length) && sig === lastSig) {
         stable++;
-        if (stable >= 3 && (!wantImage || a.images.length)) return a;
+        const creating = wantImage && CREATING_RE.test(a.text);
+        if (stable >= 3 && (!wantImage || (a.images.length && !creating))) {
+          if (!wantImage) return a;
+          if (hasDownloadButton(cur)) return a;   // 图 + 下载按钮齐了 = 真画完
+          // 图稳了但还没见按钮：多半还在渲染/合成，最多再多等 20 秒
+          if (!imgStableAt) imgStableAt = Date.now();
+          if (Date.now() - imgStableAt >= 20000) return a;
+        }
       } else {
         stable = 0;
+        imgStableAt = 0;
         lastSig = sig;
       }
       await sleep(1200);
@@ -398,6 +427,35 @@
     return arr;
   }
 
+  // 把图片"贴"进输入框（模拟粘贴一个文件）；返回现场证据
+  async function attachImage(task) {
+    const { el } = pick(SEL.input);
+    if (!el) throw new Error("找不到输入框");
+    el.click();
+    el.focus();
+    await sleep(300);
+    const bytes = b64ToBytes(task.b64);
+    if (!bytes.length) throw new Error("图片数据是空的");
+    const file = new File([bytes], task.name || "image.jpg", { type: task.mime || "image/jpeg" });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    el.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true, cancelable: true, clipboardData: dt
+    }));
+    await sleep(2500);
+    const btn = pick(SEL.send).el;
+    const blobImgs = [...document.querySelectorAll("img")]
+      .filter((i) => /^(blob:|data:)/.test(i.currentSrc || i.src || ""))
+      .filter((i) => (i.getBoundingClientRect().width || 0) > 40);
+    const sendEnabled = !!(btn && !btn.disabled && btn.getAttribute("aria-disabled") !== "true");
+    return {
+      ok: sendEnabled || blobImgs.length > 0,
+      sendEnabled: sendEnabled,
+      previewImgs: blobImgs.length,
+      editorChars: editorText(el).length,
+    };
+  }
+
   // 点"下载完整尺寸"：对话里显示的只是压缩预览，下载通道拿到的才是原图
   async function clickDownloadButtons() {
     const list = responseNodes();
@@ -427,37 +485,44 @@
     return clicked > 0;
   }
 
+  // ---------- 接续模式：连着的生图任务共用一段对话，不攒新对话 ----------
+  let lastImagePath = "";    // 上次生图任务所在的对话
+  let lastImageAt = 0;       // 上次生图任务完成时间
+  const REUSE_WINDOW_MS = 2 * 3600 * 1000;   // 2 小时内的连单共用一段
+  const REUSE_MAX_RESPONSES = 12;            // 但也别让一段对话太长
+
+  async function ensureChatForTask(isImageTask) {
+    const samePath = !!lastImagePath && location.pathname === lastImagePath;
+    const reusable = !!isImageTask && samePath
+                     && (Date.now() - lastImageAt) < REUSE_WINDOW_MS
+                     && responseNodes().length > 0
+                     && responseNodes().length < REUSE_MAX_RESPONSES;
+    if (reusable) {
+      await sleep(400);   // 接着上一段继续，不点"新对话"
+    } else {
+      await ensureFreshChat();
+    }
+  }
+
+  // 任务开跑前"拍张照"：登记页面上已存在的图（参考图/旧图），找结果时一律不算数
+  let preBlobSrcs = new Set();
+
+  function snapshotPreImages() {
+    const cur = [];
+    collectImages(document.body, cur, 0, { blobOnly: true });
+    preBlobSrcs = new Set(cur);
+  }
+
   // ---------- 任务处理 ----------
   async function doTask(task) {
-    const wantImage = task.want === "image";
+    const wantImage = task.want === "image" || task.action === "img2img";
     if (task.action === "attach") {
       // 只上传不发送：把一张本地图片"贴"进 Gemini 输入框（图生图的地基）
       await ensureFreshChat();
-      const { el } = pick(SEL.input);
-      if (!el) throw new Error("找不到输入框");
-      el.click();
-      el.focus();
-      await sleep(300);
-      const bytes = b64ToBytes(task.b64);
-      if (!bytes.length) throw new Error("图片数据是空的");
-      const file = new File([bytes], task.name || "image.jpg", { type: task.mime || "image/jpeg" });
-      const dt = new DataTransfer();
-      dt.items.add(file);
-      el.dispatchEvent(new ClipboardEvent("paste", {
-        bubbles: true, cancelable: true, clipboardData: dt
-      }));
-      await sleep(2500);
-      // 证据：空文本时发送键亮了 = 有附件；页面上出现 blob:/data: 缩略图 = 预览已挂上
-      const btn = pick(SEL.send).el;
-      const blobImgs = [...document.querySelectorAll("img")]
-        .filter((i) => /^(blob:|data:)/.test(i.currentSrc || i.src || ""))
-        .filter((i) => (i.getBoundingClientRect().width || 0) > 40);
-      const evidence = {
-        sendEnabled: !!(btn && !btn.disabled && btn.getAttribute("aria-disabled") !== "true"),
-        previewImgs: blobImgs.length,
-        editorChars: editorText(el).length,
-      };
-      sendToBg({ type: "gw-result", id: task.id, text: JSON.stringify(evidence), images: [] });
+      const r = await attachImage(task);
+      sendToBg({ type: "gw-result", id: task.id,
+                 text: JSON.stringify({ sendEnabled: r.sendEnabled, previewImgs: r.previewImgs, editorChars: r.editorChars }),
+                 images: [] });
       return;
     }
     if (task.action === "download-last") {
@@ -467,7 +532,13 @@
       sendToBg({ type: "gw-result", id: task.id, text: "", images: [], downloaded: true });
       return;
     }
-    await ensureFreshChat();
+    await ensureChatForTask(wantImage);
+    if (task.action === "img2img") {
+      // 一条龙图生图：先把参考图贴进去，再打字发送——同一个对话里完成
+      const r = await attachImage(task);
+      if (!r.ok) throw new Error("参考图没贴进去：" + JSON.stringify(r));
+    }
+    if (wantImage) snapshotPreImages();   // 登记贴进去的参考图/旧图，之后不算结果
     const baseline = responseNodes().length;   // 发送前先数好，防止回答来得太快漏检
     await typePrompt(task.prompt);
     // 打字完成、发送之前的现场自检（顺便抓发送按钮的真实长相）
@@ -485,6 +556,10 @@
       downloaded = await clickDownloadButtons();
     }
     sendToBg({ type: "gw-result", id: task.id, text: answer.text, images: images, downloaded: downloaded });
+    if (wantImage) {
+      lastImagePath = location.pathname;   // 记下这段对话，下一单接着用
+      lastImageAt = Date.now();
+    }
   }
 
   async function processQueue() {

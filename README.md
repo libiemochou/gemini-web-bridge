@@ -28,7 +28,9 @@
 
 - 🎨 **生图 MCP 工具**：对模型说"帮我生成一张 ___ 的图片"，自动调用 Gemini 网页画图
 - 🖼 **原图自动下载**：自动点击"下载完整尺寸"，拿到的是**原图**（实测 2752×1536 PNG ≈4.9MB），不是对话里的压缩预览（1024×572、几十 KB）
+- ✏️ **一条龙图生图**：给一张本地图片 + 一句修改要求（"去掉背景""改成素描风格"），自动完成「上传参考图 → 提交修改 → 下载原图」
 - 📎 **图片上传通道**：把本地图片自动"贴"进 Gemini 输入框（只上传不发送），为**图生图 / 参考图**玩法打底
+- 🔗 **对话接续**：连着的生图 / 改图任务自动复用同一段对话（一段最多 12 轮），不在 Gemini 里刷出一堆一次性对话
 - 💬 **本地 API**：`http://127.0.0.1:8080/v1/messages`（Anthropic 兼容、支持流式），可以把 Gemini 网页版当作 Claude Code 的一条备用模型线路
 - 🪄 **按需启停**：Gemini 页面平时不用开——需要时自动打开、干完自动关闭；桥接程序由工具自动拉起，平时零维护
 - 🔒 **全程本地**：所有请求只在你电脑内打转，不经过任何第三方服务器
@@ -92,6 +94,8 @@
 
 **生图**：直接说人话就行（"画一只…""生成一张…"）。画完的原图会躺在电脑的「下载」文件夹里，对话里会告诉你完整路径。
 
+**改图（图生图）**：给出本地图片的完整路径 + 一句要求（"把这张图的背景去掉""改成素描风格"）。流程和生图一样：改好的原图自动落到「下载」文件夹。
+
 **可选——把网页版当聊天线路**（慢，仅备用）：在客户端（Claude Code 等）的供应商设置里新增一条：
 
 - Base URL：`http://127.0.0.1:8080`（**不要加 /v1**）
@@ -141,6 +145,7 @@
 | `POST /x/gen-image` | 生图：`{"prompt": "..."}` → 原图下载到下载文件夹 |
 | `POST /x/grab-last` | 把当前页面上最后一张生成图按原图下载（不消耗额度） |
 | `POST /x/attach` | 把本地图片贴进 Gemini 输入框（只上传不发送）：`{"path": "C:/图片.png"}` |
+| `POST /x/img2img` | 一条龙图生图：`{"path": "C:/图片.png", "prompt": "把背景改成纯白"}` → 改好的原图下载到下载文件夹 |
 | `GET /x/status` | 运行状态 / 插件连接 / 页面自检数据 |
 
 ## 免责声明
@@ -161,7 +166,7 @@
 
 Gemini Web Bridge turns your own logged-in Gemini web session into:
 
-1. an **MCP tool** (`generate_image`) for Claude Code — ask for an image, it generates on the free web version and downloads the **full-size original** to your Downloads folder;
+1. **MCP tools** (`generate_image` / `edit_image`) for Claude Code — ask for an image, or hand it a local image plus an instruction ("remove the background"), and it generates/edits on the free web version and downloads the **full-size original** to your Downloads folder;
 2. a local **Anthropic-compatible API** at `http://127.0.0.1:8080/v1/messages`.
 
 A browser extension (real browser, real IP, real session — the lowest-risk approach for automation) drives the Gemini web UI on demand: it opens a tab when needed, types, sends, waits, clicks "Download full size", and reports the file path back.

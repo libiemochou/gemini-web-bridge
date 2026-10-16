@@ -10,15 +10,21 @@ let dlTaskId = null;               // 生图任务：等"下载完整尺寸"的�
 const ourDownloads = new Map();    // 下载id -> 归属任务id（登记时钉死，防张冠李戴）
 let busyTaskId = null;             // 正在跑的任务（看门狗用）
 let busyTimer = null;              // 跑太久/页面被刷新的兜底
+let busyTicks = 0;                 // 干活期间的心跳计数（防后台休眠）
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function ensureGeminiTab() {
   const tabs = await chrome.tabs.query({ url: "https://gemini.google.com/*" });
-  if (tabs && tabs.length) return tabs[0];
+  if (tabs && tabs.length) {
+    // 别让浏览器把这个标签页"内存回收"掉（回收会杀掉插件脚本、任务断线）
+    try { await chrome.tabs.update(tabs[0].id, { autoDiscardable: false }); } catch (e) {}
+    return tabs[0];
+  }
   // 平时不占浏览器：需要干活时才开（后台标签页），干完自动关
   try {
     const tab = await chrome.tabs.create({ url: "https://gemini.google.com/app", active: false });
+    try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (e) {}
     openedByUs = true;
     return tab;
   } catch (e) {
@@ -70,6 +76,11 @@ async function pump() {
   try {
     while (true) {
       if (pageBusy) {
+        // 干活期间保持一点网络活动，防止 MV3 后台被浏览器休眠、内存状态丢失
+        busyTicks++;
+        if (busyTicks % 20 === 0) {
+          fetch(BASE + "/x/status", { cache: "no-store" }).catch(() => {});
+        }
         await sleep(1000);
         continue;
       }
@@ -159,11 +170,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     pump();
     sendResponse({ ok: true });
   } else if (msg.type === "gw-diag") {
-    fetch(BASE + "/x/diag", {
+    const payload = msg.data || {};
+    // 附上最近的浏览器下载记录（排查"下载按钮点了不落地"的第一手证据）
+    const post = () => fetch(BASE + "/x/diag", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(msg.data || {})
+      body: JSON.stringify(payload)
     }).catch(() => {});
+    try {
+      chrome.downloads.search({ limit: 8, orderBy: ["-startTime"] }, (items) => {
+        payload.recentDownloads = (items || []).map((d) => ({
+          file: String(d.filename || "").slice(0, 140),
+          url: String(d.url || "").slice(0, 100),
+          finalUrl: String(d.finalUrl || "").slice(0, 100),
+          state: d.state,
+          error: d.error || "",
+          when: d.startTime || ""
+        }));
+        post();
+      });
+    } catch (e) {
+      post();
+    }
     sendResponse({ ok: true });
   }
   return false;

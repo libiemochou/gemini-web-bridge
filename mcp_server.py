@@ -67,6 +67,22 @@ def generate_image(prompt):
     return "生图失败：" + str(r.get("error") or "未知错误")
 
 
+def edit_image(image_path, instruction):
+    image_path = (image_path or "").strip()
+    instruction = (instruction or "").strip()
+    if not image_path:
+        return "改图失败：缺少 image_path（本地图片的完整路径）"
+    if not instruction:
+        return "改图失败：缺少 instruction（说一下怎么改）"
+    _ensure_bridge()
+    r = _post("/x/img2img", {"path": image_path, "prompt": instruction}, timeout=320)
+    if r.get("ok"):
+        files = r.get("files") or []
+        return ("改好的图已下载，文件路径：\n" + "\n".join(files) +
+                "\n（就在电脑的「下载」文件夹里。把路径原样告诉用户即可，不要编造图片内容之外的信息。）")
+    return "改图失败：" + str(r.get("error") or "未知错误")
+
+
 def reply(obj):
     sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
     sys.stdout.flush()
@@ -116,6 +132,26 @@ def main():
                     },
                     "required": ["prompt"],
                 },
+            }, {
+                "name": "edit_image",
+                "description": (
+                    "基于本地已有的一张图片做修改（图生图）：把参考图上传到 Gemini 并按你的要求直接改，"
+                    "改好的图自动下载到「下载」文件夹。当用户说“把这张图改成…”“去掉背景”“清理杂点”"
+                    "并给出本地图片路径时使用。耗时 30~120 秒属正常。"),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "image_path": {
+                            "type": "string",
+                            "description": "本地参考图片的完整路径（如 C:\\Users\\xx\\Downloads\\pic.png）",
+                        },
+                        "instruction": {
+                            "type": "string",
+                            "description": "怎么改这张图（如：去掉背景改成纯白、改成素描风格、清理杂点）",
+                        },
+                    },
+                    "required": ["image_path", "instruction"],
+                },
             }]}})
         elif method == "tools/call":
             params = msg.get("params") or {}
@@ -129,6 +165,15 @@ def main():
                 except Exception as e:
                     reply({"jsonrpc": "2.0", "id": mid, "result": {
                         "content": [{"type": "text", "text": "生图失败：%s" % e}],
+                        "isError": True}})
+            elif name == "edit_image":
+                try:
+                    text = edit_image(str(args.get("image_path") or ""), str(args.get("instruction") or ""))
+                    reply({"jsonrpc": "2.0", "id": mid, "result": {
+                        "content": [{"type": "text", "text": text}], "isError": False}})
+                except Exception as e:
+                    reply({"jsonrpc": "2.0", "id": mid, "result": {
+                        "content": [{"type": "text", "text": "改图失败：%s" % e}],
                         "isError": True}})
             else:
                 reply({"jsonrpc": "2.0", "id": mid,
