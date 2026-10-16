@@ -391,6 +391,13 @@
     return out;
   }
 
+  function b64ToBytes(b64) {
+    const bin = atob(b64 || "");
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return arr;
+  }
+
   // 点"下载完整尺寸"：对话里显示的只是压缩预览，下载通道拿到的才是原图
   async function clickDownloadButtons() {
     const list = responseNodes();
@@ -423,6 +430,36 @@
   // ---------- 任务处理 ----------
   async function doTask(task) {
     const wantImage = task.want === "image";
+    if (task.action === "attach") {
+      // 只上传不发送：把一张本地图片"贴"进 Gemini 输入框（图生图的地基）
+      await ensureFreshChat();
+      const { el } = pick(SEL.input);
+      if (!el) throw new Error("找不到输入框");
+      el.click();
+      el.focus();
+      await sleep(300);
+      const bytes = b64ToBytes(task.b64);
+      if (!bytes.length) throw new Error("图片数据是空的");
+      const file = new File([bytes], task.name || "image.jpg", { type: task.mime || "image/jpeg" });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      el.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true, cancelable: true, clipboardData: dt
+      }));
+      await sleep(2500);
+      // 证据：空文本时发送键亮了 = 有附件；页面上出现 blob:/data: 缩略图 = 预览已挂上
+      const btn = pick(SEL.send).el;
+      const blobImgs = [...document.querySelectorAll("img")]
+        .filter((i) => /^(blob:|data:)/.test(i.currentSrc || i.src || ""))
+        .filter((i) => (i.getBoundingClientRect().width || 0) > 40);
+      const evidence = {
+        sendEnabled: !!(btn && !btn.disabled && btn.getAttribute("aria-disabled") !== "true"),
+        previewImgs: blobImgs.length,
+        editorChars: editorText(el).length,
+      };
+      sendToBg({ type: "gw-result", id: task.id, text: JSON.stringify(evidence), images: [] });
+      return;
+    }
     if (task.action === "download-last") {
       // 只下载不生成：直接点当前页面上最后一条回答里的"下载完整尺寸"
       const ok = await clickDownloadButtons();

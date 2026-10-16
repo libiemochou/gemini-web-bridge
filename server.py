@@ -160,12 +160,15 @@ def build_prompt(body):
 
 # ---------------------------------------------------------------- 任务队列
 
-def new_task(prompt, want=None, action=None):
+def new_task(prompt, want=None, action=None, extra=None):
     tid = uuid.uuid4().hex[:12]
     ev = threading.Event()
+    task = {"id": tid, "prompt": prompt, "created": time.time(),
+            "want": want, "action": action}
+    if extra:
+        task.update(extra)
     with LOCK:
-        PENDING.append({"id": tid, "prompt": prompt, "created": time.time(),
-                        "want": want, "action": action})
+        PENDING.append(task)
         WAITERS[tid] = {"event": ev, "result": None}
     log("排队新任务 %s（%d 字%s%s）" % (tid, len(prompt),
                                      "，生图" if want == "image" else "",
@@ -315,6 +318,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._handle_gen_image()
         elif path == "/x/grab-last":
             self._handle_grab_last()
+        elif path == "/x/attach":
+            self._handle_attach()
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -368,6 +373,44 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return p
             time.sleep(0.5)
         return None
+
+    ALLOWED_IMG = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                   ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp"}
+
+    def _handle_attach(self):
+        """把本地一张图片贴进 Gemini 输入框（只上传、不发送）——图生图的地基"""
+        body = self._read_body()
+        p = (body.get("path") or "").strip()
+        if not p or not os.path.isfile(p):
+            self._send_json(400, {"ok": False, "error": "文件不存在：%s" % p})
+            return
+        mime = self.ALLOWED_IMG.get(os.path.splitext(p)[1].lower())
+        if not mime:
+            self._send_json(400, {"ok": False, "error": "只支持图片文件（jpg / png / webp / gif / bmp）"})
+            return
+        if os.path.getsize(p) > 25 * 1024 * 1024:
+            self._send_json(400, {"ok": False, "error": "图片太大（超过 25MB）"})
+            return
+        try:
+            with open(p, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+        except Exception as e:
+            self._send_json(500, {"ok": False, "error": "读文件失败：%s" % e})
+            return
+        tid, ev = new_task("", action="attach",
+                           extra={"name": os.path.basename(p), "mime": mime, "b64": b64})
+        ev.wait(TASK_TIMEOUT)
+        with LOCK:
+            w = WAITERS.pop(tid, None)
+        result = (w or {}).get("result") or {}
+        if not result:
+            self._send_json(502, {"ok": False, "error": "任务超时（插件没响应）"})
+            return
+        if result.get("error"):
+            self._send_json(502, {"ok": False, "error": result["error"]})
+            return
+        log("图片已贴进输入框：", os.path.basename(p), result.get("text") or "")
+        self._send_json(200, {"ok": True, "evidence": result.get("text") or ""})
 
     def _handle_grab_last(self):
         """只下载不生成：把当前页面最后一条回答里的图按"下载完整尺寸"拿下来"""
