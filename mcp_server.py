@@ -67,15 +67,23 @@ def generate_image(prompt):
     return "生图失败：" + str(r.get("error") or "未知错误")
 
 
-def edit_image(image_path, instruction):
-    image_path = (image_path or "").strip()
+def edit_image(image_path, instruction, image_paths=None):
+    paths = []
+    if isinstance(image_paths, list):
+        paths = [str(p).strip() for p in image_paths if str(p).strip()]
+    if not paths:
+        p = (image_path or "").strip()
+        if p:
+            paths = [p]
     instruction = (instruction or "").strip()
-    if not image_path:
-        return "改图失败：缺少 image_path（本地图片的完整路径）"
+    if not paths:
+        return "改图失败：缺少 image_path / image_paths（本地图片的完整路径）"
     if not instruction:
         return "改图失败：缺少 instruction（说一下怎么改）"
+    if len(paths) > 4:
+        return "改图失败：参考图最多 4 张"
     _ensure_bridge()
-    r = _post("/x/img2img", {"path": image_path, "prompt": instruction}, timeout=320)
+    r = _post("/x/img2img", {"paths": paths, "prompt": instruction}, timeout=320)
     if r.get("ok"):
         files = r.get("files") or []
         return ("改好的图已下载，文件路径：\n" + "\n".join(files) +
@@ -135,22 +143,27 @@ def main():
             }, {
                 "name": "edit_image",
                 "description": (
-                    "基于本地已有的一张图片做修改（图生图）：把参考图上传到 Gemini 并按你的要求直接改，"
-                    "改好的图自动下载到「下载」文件夹。当用户说“把这张图改成…”“去掉背景”“清理杂点”"
-                    "并给出本地图片路径时使用。耗时 30~120 秒属正常。"),
+                    "基于本地已有的一张或多张图片做修改（图生图）：把参考图上传到 Gemini 并按你的要求直接改，"
+                    "改好的图自动下载到「下载」文件夹。当用户说“把这张图改成…”“去掉背景”“清理杂点”，"
+                    "或要“把图1的人放进图2的场景”这类多参考图合成时使用。耗时 30~120 秒属正常。"),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "image_path": {
                             "type": "string",
-                            "description": "本地参考图片的完整路径（如 C:\\Users\\xx\\Downloads\\pic.png）",
+                            "description": "本地参考图片的完整路径（只有一张时用这个，如 C:\\Users\\xx\\Downloads\\pic.png）",
+                        },
+                        "image_paths": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "多张参考图的完整路径列表（1~4 张，贴图顺序即描述里的“图1/图2”；与 image_path 二选一）",
                         },
                         "instruction": {
                             "type": "string",
-                            "description": "怎么改这张图（如：去掉背景改成纯白、改成素描风格、清理杂点）",
+                            "description": "怎么改（如：去掉背景改成纯白、把图1的人物放进图2的场景）",
                         },
                     },
-                    "required": ["image_path", "instruction"],
+                    "required": ["instruction"],
                 },
             }]}})
         elif method == "tools/call":
@@ -168,7 +181,9 @@ def main():
                         "isError": True}})
             elif name == "edit_image":
                 try:
-                    text = edit_image(str(args.get("image_path") or ""), str(args.get("instruction") or ""))
+                    text = edit_image(str(args.get("image_path") or ""),
+                                      str(args.get("instruction") or ""),
+                                      args.get("image_paths"))
                     reply({"jsonrpc": "2.0", "id": mid, "result": {
                         "content": [{"type": "text", "text": text}], "isError": False}})
                 except Exception as e:

@@ -46,9 +46,16 @@ PROMPT_IMG2IMG_PRE = (
     "请基于我上传的这张图片进行修改：保持主体不变，直接在原图的基础上按要求改"
     "（不要重新画一张完全不同的）。修改要求：\n"
 )
+# 多张参考图时换成"图1、图2…"的说法（合成/多主体场景）
+PROMPT_IMG2IMG_MULTI = (
+    "请基于我上传的这几张图片进行处理（按上传顺序依次称为图1、图2、图3…）："
+    "保持各图的主体特征不变，不要把它们重画成完全不同的东西。处理要求：\n"
+)
 
 
-def build_img2img_prompt(desc):
+def build_img2img_prompt(desc, n=1):
+    if n > 1:
+        return PROMPT_IMG2IMG_MULTI + (desc or "").strip()
     return PROMPT_IMG2IMG_PRE + (desc or "").strip()
 
 LOCK = threading.Lock()
@@ -426,31 +433,47 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"ok": True, "evidence": result.get("text") or ""})
 
     def _handle_img2img(self):
-        """一条龙图生图：贴参考图 + 修改指令，在同一个对话里完成"""
+        """一条龙图生图：贴 1~4 张参考图 + 修改指令，在同一个对话里完成"""
         body = self._read_body()
-        p = (body.get("path") or "").strip()
         desc = (body.get("prompt") or "").strip()
         if not desc:
             self._send_json(400, {"ok": False, "error": "缺少 prompt（要告诉它怎么改这张图）"})
             return
-        if not p or not os.path.isfile(p):
-            self._send_json(400, {"ok": False, "error": "文件不存在：%s" % p})
+        # 参考图：paths 数组（1~4 张）；老的 path 单张写法继续兼容
+        raw = body.get("paths")
+        if isinstance(raw, str):
+            raw = [raw]
+        if not raw:
+            one = (body.get("path") or "").strip()
+            raw = [one] if one else []
+        paths = [str(x).strip() for x in raw if str(x).strip()]
+        if not paths:
+            self._send_json(400, {"ok": False, "error": "缺少 path / paths（参考图路径）"})
             return
-        mime = self.ALLOWED_IMG.get(os.path.splitext(p)[1].lower())
-        if not mime:
-            self._send_json(400, {"ok": False, "error": "只支持图片文件（jpg / png / webp / gif / bmp）"})
+        if len(paths) > 4:
+            self._send_json(400, {"ok": False, "error": "参考图最多 4 张"})
             return
-        if os.path.getsize(p) > 25 * 1024 * 1024:
-            self._send_json(400, {"ok": False, "error": "图片太大（超过 25MB）"})
-            return
-        try:
-            with open(p, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("ascii")
-        except Exception as e:
-            self._send_json(500, {"ok": False, "error": "读文件失败：%s" % e})
-            return
-        tid, ev = new_task(build_img2img_prompt(desc), want="image", action="img2img",
-                           extra={"name": os.path.basename(p), "mime": mime, "b64": b64})
+        files = []
+        for p in paths:
+            if not os.path.isfile(p):
+                self._send_json(400, {"ok": False, "error": "文件不存在：%s" % p})
+                return
+            mime = self.ALLOWED_IMG.get(os.path.splitext(p)[1].lower())
+            if not mime:
+                self._send_json(400, {"ok": False, "error": "只支持图片文件（jpg / png / webp / gif / bmp）：%s" % p})
+                return
+            if os.path.getsize(p) > 25 * 1024 * 1024:
+                self._send_json(400, {"ok": False, "error": "图片太大（超过 25MB）：%s" % p})
+                return
+            try:
+                with open(p, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("ascii")
+            except Exception as e:
+                self._send_json(500, {"ok": False, "error": "读文件失败：%s" % e})
+                return
+            files.append({"name": os.path.basename(p), "mime": mime, "b64": b64})
+        tid, ev = new_task(build_img2img_prompt(desc, len(files)), want="image", action="img2img",
+                           extra={"files": files})
         ev.wait(TASK_TIMEOUT)
         with LOCK:
             w = WAITERS.pop(tid, None)

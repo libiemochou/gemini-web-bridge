@@ -426,31 +426,41 @@
     return arr;
   }
 
-  // 把图片"贴"进输入框（模拟粘贴一个文件）；返回现场证据
+  // 把 1~4 张图片一次性"贴"进输入框（模拟粘贴多选文件）；返回现场证据
   async function attachImage(task) {
     const { el } = pick(SEL.input);
     if (!el) throw new Error("找不到输入框");
     el.click();
     el.focus();
     await sleep(300);
-    const bytes = b64ToBytes(task.b64);
-    if (!bytes.length) throw new Error("图片数据是空的");
-    const file = new File([bytes], task.name || "image.jpg", { type: task.mime || "image/jpeg" });
+    // 新任务带 files 数组；老任务只有单个 b64（兼容）
+    const items = Array.isArray(task.files) && task.files.length
+      ? task.files
+      : [{ name: task.name, mime: task.mime, b64: task.b64 }];
     const dt = new DataTransfer();
-    dt.items.add(file);
+    let n = 0;
+    for (const it of items) {
+      const bytes = b64ToBytes(it.b64);
+      if (!bytes.length) continue;
+      n++;
+      dt.items.add(new File([bytes], it.name || ("image" + n + ".jpg"),
+                            { type: it.mime || "image/jpeg" }));
+    }
+    if (!n) throw new Error("图片数据是空的");
     el.dispatchEvent(new ClipboardEvent("paste", {
       bubbles: true, cancelable: true, clipboardData: dt
     }));
-    await sleep(2500);
+    await sleep(2500 + (n - 1) * 1200);   // 多张时多等一会，让缩略图都挂上
     const btn = pick(SEL.send).el;
     const blobImgs = [...document.querySelectorAll("img")]
       .filter((i) => /^(blob:|data:)/.test(i.currentSrc || i.src || ""))
       .filter((i) => (i.getBoundingClientRect().width || 0) > 40);
     const sendEnabled = !!(btn && !btn.disabled && btn.getAttribute("aria-disabled") !== "true");
     return {
-      ok: sendEnabled || blobImgs.length > 0,
+      ok: sendEnabled || blobImgs.length >= n,
       sendEnabled: sendEnabled,
       previewImgs: blobImgs.length,
+      attached: n,
       editorChars: editorText(el).length,
     };
   }
